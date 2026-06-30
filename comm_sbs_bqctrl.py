@@ -2853,7 +2853,7 @@ def smart_battery_detect(vals, po):
     try:
         chip = smart_battery_bq_detect(vals, po)
     except Exception as ex:
-        print("Chip detection failded: {}".format(str_exception_with_type(ex)))
+        print("Chip detection failed: {}".format(str_exception_with_type(ex)))
     if (po.verbose > 0):
         print("Auto-selected chip: {}, {}".format(chip.name,chip.__doc__))
     return chip
