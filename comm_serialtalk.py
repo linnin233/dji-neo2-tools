@@ -132,75 +132,120 @@ class SerialBulkWrap():
         return 1
 
 
-def find_correct_device(dev):
-    # Ugly way of finding the correct bulk device.
-    # I truly wish this would be simpler.
+def find_correct_device(dev_list):
+    """Find the DJI DUML Bulk (ACM) interface among device's USB interfaces.
+
+    On platforms where string descriptors are available (Linux, macOS, libusb0 driver),
+    parse the configuration description to locate the "acm" or "bulk" interface.
+    On Windows with WinUSB driver, string descriptors are often unavailable — fall back
+    to searching for interfaces with bInterfaceSubClass == 0x43 (DJI DUML Bulk).
+    """
     import usb.util
 
-    for d in dev:
+    for d in dev_list:
         for cfg in d:
-            # see if we can get the interface description.
-            interface_description = usb.util.get_string(d, cfg.iConfiguration)
+            # Try reading interface description; may fail on Windows/WinUSB
+            if_desc = None
+            try:
+                if_desc = usb.util.get_string(d, cfg.iConfiguration)
+            except Exception:
+                pass
 
-            if "," in interface_description:
-                # UAVs
-                # They may have multiple "bulk" intefaces (all with the same
-                # bInterfaceSubClass), so we need to look for the "ACM" one
-                # (which is the DUML BULK interface)
-                interface_descriptions = interface_description.split(",")
-                try:
-                    interface_for_acm = interface_descriptions.index("acm") + 1
-                except ValueError:
-                    print("no ACM (bulk) interface here.")
-                    continue
-                print("using bInterfaceNumber %d" % interface_for_acm)
-                for intf in cfg:
-                    if intf.bInterfaceNumber == interface_for_acm:
-                        assert intf.bInterfaceSubClass == 0x43, "we expect the ACM inteface to be of the right bInterfaceSubclass"
-                        return intf
-            elif "_" in interface_description:
-
-                # RM330: "mtp_bulk_adb"
-                #   Interface 0: mtp
-                #   Interface 1: bulk
-                #   Interface 2: adb
-
-                # but:
-                # RM510: "mtp_bulk_adb"
-                #   Interface 0: bulk
-                #   Interface 1: mtp
-                #   Interface 2: adb
-
-                # So we resort to look for a bulk interface based on subclass.
-                # (Same strategy doesn't work on e.g. wm260 because they
-                # have multiple bulk interfaces with the same subclass.)
-
-                interface_descriptions = interface_description.split("_")
-                if "bulk" in interface_descriptions:
-                    interface_for_acm = interface_descriptions.index("bulk")
+            if if_desc is not None:
+                if "," in if_desc:
+                    # UAV config string: e.g. "mtp,acm,adb" — pick "acm"
+                    parts = if_desc.split(",")
+                    if "acm" not in parts:
+                        continue
+                    iface_num = parts.index("acm") + 1
                     for intf in cfg:
-                        if intf.bInterfaceSubClass == 0x43:
+                        if intf.bInterfaceNumber == iface_num:
                             return intf
-                else:
-                    print("no BULK interface here.")
-                    continue
+                elif "_" in if_desc:
+                    # RM330/RM510: "mtp_bulk_adb" — find bulk by subclass
+                    if "bulk" in if_desc.split("_"):
+                        for intf in cfg:
+                            if intf.bInterfaceSubClass == 0x43:
+                                return intf
             else:
-                print("can't parse", interface_descriptions)
-                continue
+                # No string descriptors (Windows/WinUSB). Find by subclass.
+                for intf in cfg:
+                    if intf.bInterfaceSubClass == 0x43:
+                        return intf
 
     return None
+
+
+def _find_libusb_backend():
+    """Locate a working libusb backend (libusb1 or libusb0) with its native DLL."""
+    import os
+    dll_paths = []
+    # Search site-packages (system + user) for libusb-1.0.dll
+    try:
+        import site
+        for sp in site.getsitepackages() + [site.getusersitepackages()]:
+            for sub in ('usb1', 'libusb/_platform/_windows/x64'):
+                p = os.path.join(sp, sub, 'libusb-1.0.dll')
+                if os.path.exists(p):
+                    dll_paths.append(p)
+    except Exception:
+        pass
+    # Also check next to this script
+    dll_paths.append(os.path.join(os.path.dirname(__file__), 'libusb-1.0.dll'))
+
+    # Try libusb1 with each DLL
+    for dll in dll_paths:
+        if os.path.exists(dll):
+            try:
+                import usb.backend.libusb1
+                backend = usb.backend.libusb1.get_backend(find_library=lambda x: dll)
+                if backend is not None:
+                    return backend
+            except Exception:
+                pass
+
+    # Fallback: try libusb0 (used with Zadig libusb-win32 driver)
+    try:
+        import usb.backend.libusb0
+        return usb.backend.libusb0.get_backend()
+    except Exception:
+        pass
+
+    raise RuntimeError(
+        "No libusb backend found.\n"
+        "Install: pip install --user pyusb libusb1\n"
+        "Then use Zadig (https://zadig.akeo.ie/) to install libusb-win32 driver for the DJI device."
+    )
 
 
 def open_usb(po):
     import usb.core
     import usb.util
-    import usb.backend.libusb0 as myusb
 
-    mybackend = myusb.get_backend()
-    dev = usb.core.find(idVendor=0x2ca3, find_all = True, backend=mybackend)
-    intf = find_correct_device(dev)
+    backend = _find_libusb_backend()
+    dev_iter = usb.core.find(idVendor=0x2ca3, find_all=True, backend=backend)
+    dev_list = list(dev_iter)
+    intf = find_correct_device(dev_list)
 
-    assert intf is not None, "Could not find any DJI BULK device"
+    if intf is None:
+        raise RuntimeError("Could not find DJI DUML Bulk interface. Is the drone connected and powered on?")
+
+    if len(dev_list) == 0:
+        raise RuntimeError("No DJI USB devices found (vendor 0x2CA3).")
+
+    usb_dev = dev_list[0]
+
+    # On Windows we must detach the kernel driver (WinUSB/libusb0) and claim the interface.
+    for action in ('detach_kernel_driver', 'set_configuration', 'claim_interface'):
+        try:
+            if action == 'detach_kernel_driver':
+                usb_dev.detach_kernel_driver(intf.bInterfaceNumber)
+            elif action == 'set_configuration':
+                usb_dev.set_configuration()
+            elif action == 'claim_interface':
+                usb.util.claim_interface(usb_dev, intf.bInterfaceNumber)
+        except Exception:
+            pass  # Best-effort; works on some platforms, fails harmlessly on others
 
     ep_out = usb.util.find_descriptor(
         intf,
@@ -218,8 +263,8 @@ def open_usb(po):
             usb.util.endpoint_direction(e.bEndpointAddress) == \
             usb.util.ENDPOINT_IN)
 
-    if dev and ep_in and ep_out:
-        return SerialBulkWrap(dev,ep_in,ep_out, po.timeout)
+    if usb_dev and ep_in and ep_out:
+        return SerialBulkWrap(usb_dev, ep_in, ep_out, po.timeout)
     else:
         assert False, "Could not find endpoints for bulk interface"
 

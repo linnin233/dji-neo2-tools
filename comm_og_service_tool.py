@@ -81,6 +81,8 @@ class PRODUCT_CODE(DecoratedEnum):
     WM232  = 28 # Released 2021-04-15 (MAVIC) AIR 2S
     WM260  = 29 # Released 2021-11-05 (MAVIC) 3
     WM247  = 30 # Released 2020-12-15 Mavic 2 Enterprise Advanced
+    NEO    = 31 # Released 2024-09-05 DJI Neo (hacked — unofficial support, use at own risk)
+    NEO2   = 32 # Released 2025-10-30 DJI Neo 2 (hacked — unofficial support, use at own risk)
 
 
 ALT_PRODUCT_CODE = {
@@ -107,6 +109,8 @@ ALT_PRODUCT_CODE = {
     'MAVAIR2': 'WM231',
     'MAVAIR2S': 'WM232',
     'MAV3': 'WM260',
+    'DJINEO': 'NEO',
+    'DJINEO2': 'NEO2',
 }
 
 
