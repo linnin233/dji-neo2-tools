@@ -179,17 +179,57 @@ set_param(
 
 
 # ============================================================================
-#  四、刹车手感（自调区）
+#  四、档位模式配置（自调区）
 # ============================================================================
 print(f"\n{YELLOW}{'='*50}{RESET}")
-print(f"{YELLOW}  四、刹车手感 — 根据需要取消注释{RESET}")
+print(f"{YELLOW}  四、档位模式配置 — 根据需要取消注释{RESET}")
+print(f"{YELLOW}{'='*50}{RESET}")
+
+print(f"""
+  遥控器三档开关 → 飞控 mode 编号:
+
+    switch 上 → control_mode[0]  默认 12 (Cine平稳)
+    switch 中 → control_mode[1]  默认 8  (Sport运动)
+    switch 下 → control_mode[2]  默认 7  (Normal普通)
+
+  mode 编号对照:
+    3  = ATTI   (纯姿态，无GPS，隐藏模式)
+    7  = Normal (GPS+视觉定位)
+    8  = Sport  (高速，避障自动关)
+    12 = Cine   (慢速平稳，拍视频用)
+
+  档位专属 FFG 前馈增益:
+    trip_ffg_speed_ctrl_perc   Cine档   范围 0~100, 默认 8
+    ffg_speed_ctrl_perc        Normal档 范围 0~100, 默认 40
+    sport_ffg_speed_ctrl_perc  Sport档  范围 0~100, 默认 40
+    atti_normal_ffg_speed_ctrl_perc  ATTI档 范围 0~100, 默认 0
+
+  注意: C→ATTI(3) 在部分固件版本上可能被忽略，建议飞行中通过实际行为验证
+""")
+
+# ── 示例：把 Cine 改成 ATTI ──
+# set_param("fswitch_selection|g_config.control.control_mode[0]", "3", "档位0(Cine→ATTI)")
+
+# ── 示例：颠倒 Normal/Sport ──
+# set_param("fswitch_selection_1|g_config.control.control_mode[1]", "7", "档位1→Normal")
+# set_param("fswitch_selection_2|g_config.control.control_mode[2]", "8", "档位2→Sport")
+
+# ── 示例：ATTI 档前馈增益调到跟手 ──
+# set_param("atti_normal_ffg_speed_ctrl_perc", "60", "ATTI档增益 0→60%")
+
+
+# ============================================================================
+#  五、刹车手感（自调区）
+# ============================================================================
+print(f"\n{YELLOW}{'='*50}{RESET}")
+print(f"{YELLOW}  五、刹车手感 — 根据需要取消注释{RESET}")
 print(f"{YELLOW}{'='*50}{RESET}")
 
 print(f"""
   brake_sensitive_fc    飞控刹车灵敏度   范围 0~80,  默认 0.6
   brake_sensitivity     刹车增益         范围 0~150, 默认 80
 
-  手感对照：
+  手感对照:
     0.1  = 松杆后丝滑滑行，穿越机风格，需要手动停
     0.4  = 有滑行但不会太久，偏运动
     0.6  = DJI 原厂手感，松杆干脆停住（默认）
@@ -202,7 +242,7 @@ print(f"""
 
 
 # ============================================================================
-#  结果汇总
+#  六、结果汇总
 # ============================================================================
 print(f"\n{YELLOW}{'='*50}{RESET}")
 print(f"  完成: {GREEN}{passed}{RESET} 成功 / {RED}{failed}{RESET} 失败 / {total} 总计")
